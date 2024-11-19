@@ -2,6 +2,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import psycopg2
 from datetime import datetime
+from datetime import datetime, timedelta
+
 
 # Função para conectar ao banco de dados
 def conectar():
@@ -22,32 +24,78 @@ def conectar():
 # Funções para Usuários
 
 def listar_usuarios():
+    def carregar_usuarios():
+        conn = conectar()
+        if conn is None:
+            messagebox.showerror("Erro", "Não foi possível conectar ao banco de dados.")
+            return
+
+        try:
+            cursor = conn.cursor()
+
+            # Consulta SQL para listar usuários e os títulos dos livros alugados
+            query = """
+            SELECT 
+                u.CPF, 
+                u.Nome, 
+                u.Sobrenome, 
+                u.Email, 
+                u.Telefone,
+                COALESCE(STRING_AGG(t.Titulo, ', '), 'Nenhum') AS LivrosAlugados
+            FROM Usuario u
+            LEFT JOIN Aluguel a ON u.CPF = a.CPF
+            LEFT JOIN Livro l ON a.ISBN = l.ISBN
+            LEFT JOIN Titulo t ON l.ID_titulo = t.ID_titulo
+            GROUP BY u.CPF, u.Nome, u.Sobrenome, u.Email, u.Telefone
+            """
+            cursor.execute(query)
+
+            # Limpar a Treeview antes de carregar novos dados
+            for item in tree.get_children():
+                tree.delete(item)
+
+            # Inserir os dados na Treeview
+            for row in cursor.fetchall():
+                tree.insert("", tk.END, values=row)
+
+        except Exception as e:
+            print("Erro ao listar usuários:", e)
+            messagebox.showerror("Erro", "Erro ao listar usuários.")
+        finally:
+            cursor.close()
+            conn.close()
+
+    # Criar janela de listagem
     janela_listar = tk.Toplevel()
     janela_listar.title("Listagem de Usuários")
-    
-    tree = ttk.Treeview(janela_listar, columns=("CPF", "Nome", "Sobrenome", "Email", "Telefone"), show="headings")
+    janela_listar.geometry("900x400")
+
+    # Configurar Treeview para exibir os dados
+    tree = ttk.Treeview(
+        janela_listar, 
+        columns=("CPF", "Nome", "Sobrenome", "Email", "Telefone", "Livros Alugados"), 
+        show="headings"
+    )
     tree.heading("CPF", text="CPF")
     tree.heading("Nome", text="Nome")
     tree.heading("Sobrenome", text="Sobrenome")
     tree.heading("Email", text="Email")
     tree.heading("Telefone", text="Telefone")
+    tree.heading("Livros Alugados", text="Livros Alugados")
     tree.pack(fill=tk.BOTH, expand=True)
 
-    conn = conectar()
-    if conn is None:
-        messagebox.showerror("Erro", "Não foi possível conectar ao banco de dados.")
-        return
+    # Ajustar o tamanho das colunas para uma melhor visualização
+    tree.column("CPF", width=100)
+    tree.column("Nome", width=150)
+    tree.column("Sobrenome", width=150)
+    tree.column("Email", width=200)
+    tree.column("Telefone", width=100)
+    tree.column("Livros Alugados", width=250)
 
-    try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT CPF, Nome, Sobrenome, Email, Telefone FROM Usuario")
-        usuarios = cursor.fetchall()
-        for usuario in usuarios:
-            tree.insert("", tk.END, values=usuario)
-        conn.close()
-    except Exception as e:
-        print("Erro ao listar usuários:", e)
-        messagebox.showerror("Erro", "Erro ao listar usuários.")
+    # Carregar os usuários ao abrir a janela
+    carregar_usuarios()
+
+
 
 def cadastrar_usuario():
     def salvar():
@@ -691,11 +739,12 @@ def alugar_livro():
                 (isbn,)
             )
 
-            # Registrar o aluguel
+            # Registrar o aluguel com a data de devolução
             data_aluguel = datetime.now().strftime('%Y-%m-%d')
+            data_devolucao = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')  # 7 dias após o aluguel
             cursor.execute(
-                "INSERT INTO Aluguel (Data_aluguel, CPF, ISBN) VALUES (%s, %s, %s)",
-                (data_aluguel, cpf, isbn)
+                "INSERT INTO Aluguel (Data_aluguel, Data_devolucao, CPF, ISBN) VALUES (%s, %s, %s, %s)",
+                (data_aluguel, data_devolucao, cpf, isbn)
             )
 
             conn.commit()
@@ -718,6 +767,7 @@ def alugar_livro():
     entry_cpf.grid(row=1, column=1, padx=10, pady=10)
 
     tk.Button(janela_alugar, text="Alugar", command=alugar).grid(row=2, column=0, columnspan=2, pady=10)
+
 
 
 def devolver_livro():
